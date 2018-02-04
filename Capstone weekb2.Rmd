@@ -1,0 +1,176 @@
+---
+title: "Data Science Capstone: Milestone Report"
+author: "Mark Davey"
+date: "Jan 6, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Peer-graded Assignment: Milestone Report
+
+##Background
+
+The purpose of this project is to learn Natural Language processing to aid in word guessing next word a user will enter based upon previous choices using the Corpus provided from the internet. I've used a website called "http://tidytextmining.com" as the source for all my natural language processing ideas. It greatly simplifies the process of cleaning and processing the data.
+
+##Data
+
+The data contains sources from Twitter, Blogs & News in English, French, Russian and German. The source data for this project are available [here](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip).
+
+
+##Prepare Environment
+
+Clean up old data, locate to working diretory, load the tidytext package (plus associated packages) and set the random seed so it is reproduceable. 
+
+```{r init, echo=TRUE, message=FALSE, warning=FALSE}
+rm(list=ls()) #Clean up work area
+require("knitr") #We are knitting so lets get the package
+opts_knit$set(root.dir = "C:/Users/Administrator/Source/Repos/Capstone")
+library(dplyr) #load required packages
+library(tm)
+library(tidytext)
+library(readr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+library(formattable)
+set.seed(3433) #set seed so it's reproducable
+```
+
+## Obtain and Load Data
+
+Retrieve the data from the internet if not already local and then load into Data Frames.
+
+```{r download, echo=TRUE, message=FALSE, warning=FALSE}
+#'1. Demonstrate that you've downloaded the data and have successfully loaded it in.
+#setworking directory
+setwd("C:/Users/Administrator/Source/Repos/Capstone")
+#get the data from the remote system and unpack it only if does not exist
+if (!file.exists("Coursera-SwiftKey")) {
+  dir.create("Coursera-SwiftKey")
+}
+
+if (!file.exists("./Coursera-SwiftKey.zip")) {
+  fileURL <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+#  download.file(fileURL,destfile = "./Coursera-SwiftKey.zip",method="libcurl")
+#  unzip("./Coursera-SwiftKey.zip")
+}
+#read 
+capstone_corpus <- bind_rows(
+data_frame(text=readLines("Coursera-SwiftKey/final/en_US/en_US.twitter.txt", 
+ encoding = "UTF-8", skipNul = TRUE),source="twitter") %>% mutate(line = 1:n()),
+data_frame(text=readLines("Coursera-SwiftKey/final/en_US/en_US.blogs.txt", 
+                          encoding = "UTF-8", skipNul = TRUE),source="blogs") %>% mutate(line = 1:n()),
+data_frame(text=readLines("Coursera-SwiftKey/final/en_US/en_US.news.txt", 
+                          encoding = "UTF-8", skipNul = TRUE,warn=FALSE),source="news") %>% mutate(line = 1:n())
+)
+```
+
+##Clean up the data
+
+This is were tidydata does such a nice job uunest_tokens slices and cleaned
+Got this code from tidytextmining book 
+
+```{r clean up the data, echo=TRUE, message=FALSE, warning=FALSE}
+capstone_corpus_words <- capstone_corpus %>% unnest_tokens(word, text) %>%
+  count(source, word, sort = TRUE) %>%  ungroup()
+
+source_words <- capstone_corpus_words %>% 
+  group_by(source) %>% 
+  summarize(total = sum(n))
+
+capstone_corpus_words <- left_join(capstone_corpus_words, source_words)
+
+capstone_corpus_words <- capstone_corpus_words %>%  bind_tf_idf(word, source, n)
+
+```
+
+#'2. Create a basic report of summary statistics about the data sets.
+## Basic statistics on the data
+
+```{r}
+
+source_lines <- capstone_corpus %>% group_by(source) %>% select(-one_of(c('text'))) %>% filter(line == max(line)) %>% distinct(source, line)
+
+#source_words <- capstone_corpus_words %>% group_by(source) %>% select(-one_of(c('line'))) %>%  distinct(source, word) #%>% count(words=source) %>% select(source,words=n)
+
+source_size <- capstone_corpus %>% mutate(len=nchar(text)) %>% group_by(source) %>% summarise(size = sum(len))
+
+source_details <- left_join(left_join(source_lines,source_words), source_size)
+
+formattable(source_details)
+
+```
+
+#'3. Report any interesting findings that you amassed so far.
+## Findings on the data
+So lets see which are the most common words
+```{r}
+capstone_corpus_words %>%
+  group_by(source) %>% 
+  top_n(15,n) %>% 
+  arrange(desc(n)) %>%
+  ungroup %>%
+  ggplot(aes(word, n, fill = source)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "number") +
+  facet_wrap(~source, ncol = 2, scales = "free") +
+  coord_flip()
+```
+As to be expected these are the general voels usualy called stop words 
+
+Lets remove so called stop words to get more meaning full words.
+```{r}
+capstone_corpus_words %>%
+  anti_join(stop_words) %>%
+  group_by(source) %>% 
+  top_n(15,n) %>% 
+  arrange(desc(n)) %>%
+  ungroup %>%
+  ggplot(aes(word, n, fill = source)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "number") +
+  facet_wrap(~source, ncol = 2, scales = "free") +
+  coord_flip()
+```
+This is interesting so the words source makes quite a difference.
+
+A more interesting is to find the important words by decreasing those with high refequencies call tf-idf 
+```{r}
+
+capstone_corpus_words %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = factor(word, levels = rev(unique(word)))) %>% 
+  group_by(source) %>% 
+  top_n(15) %>% 
+  ungroup %>%
+  ggplot(aes(word, tf_idf, fill = source)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~source, ncol = 2, scales = "free") +
+  coord_flip()
+
+```
+Sorry that produced a lot of foul language which proves the technique works but we better remove these words from the final product.
+
+#'4. Get feedback on your plans for creating a prediction algorithm and Shiny app.
+## ideas of ngrams
+Ngrams seem to provide the perfect method of prediction. The previous n-1 words can be search and the top highest counts of words stored in the N gram can be used to guess the next word. The biggest problem is when N=6 the data has 57 million rows which might not be possible. 
+```{r}
+
+capstone_corpus_ngram <- capstone_corpus %>% unnest_tokens(bigram, text, token = "ngrams", n = 5)
+#capstone_corpus_ngram <- capstone_corpus_ngram %>% 
+#    separate(bigram, c("word1", "word2", "word3", "word4", "word5"), sep = " ") 
+#    %>% count(source,word1, word2,word3,word4,word5, sort = TRUE) 
+
+#    capstone_corpus_ngram %>% top_n(15,n) 
+
+head(capstone_corpus_ngram)
+```
+
+
+## Summary
+I have more filtering to do since the importance of words often highlights swear words which must be removed. N-Gram (instances of N words) is clearly the way forward but the type of source must also be taken into account since the non non verbs are so different. The biggest issue will be the huge size of these data sets. May process by source type for the N-Grams.
+

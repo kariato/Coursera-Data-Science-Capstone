@@ -1,0 +1,231 @@
+---
+title: "Data Science Capstone: Week3 Report"
+author: "Mark Davey"
+date: "Jan 6, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Peer-graded Assignment: Milestone Report
+
+##Background
+
+The purpose of this project is to learn Natural Language processing to aid in word guessing next word a user will enter based upon previous choices using the Corpus provided from the internet. I've used a website called "http://tidytextmining.com" as the source for all my natural language processing ideas. It greatly simplifies the process of cleaning and processing the data.
+
+##Data
+
+The data contains sources from Twitter, Blogs & News in English, French, Russian and German. The source data for this project are available [here](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip).
+
+
+##Prepare Environment
+
+Clean up old data, locate to working diretory, load the tidytext package (plus associated packages) and set the random seed so it is reproduceable. 
+
+```{r init, echo=TRUE, message=FALSE, warning=FALSE}
+rm(list=ls()) #Clean up work area
+require("knitr") #We are knitting so lets get the package
+opts_knit$set(root.dir = "C:/Users/Administrator/Source/Repos/Capstone")
+library(dplyr) #load required packages
+library(tm)
+library(tidytext)
+library(readr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+library(formattable)
+library(data.table)
+set.seed(3433) #set seed so it's reproducable
+```
+
+## Obtain and Load Data
+
+Retrieve the data from the internet if not already local and then load into Data Frames.
+
+```{r download, echo=TRUE, message=FALSE, warning=FALSE}
+#'1. Demonstrate that you've downloaded the data and have successfully loaded it in.
+#setworking directory
+setwd("C:/Users/Administrator/Source/Repos/Capstone")
+#get the data from the remote system and unpack it only if does not exist
+if (!file.exists("Coursera-SwiftKey")) {
+  dir.create("Coursera-SwiftKey")
+}
+
+if (!file.exists("./Coursera-SwiftKey.zip")) {
+  fileURL <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+#  download.file(fileURL,destfile = "./Coursera-SwiftKey.zip",method="libcurl")
+#  unzip("./Coursera-SwiftKey.zip")
+}
+#read 
+capstone_corpus <- bind_rows(
+data_frame(text=readLines("Coursera-SwiftKey/final/en_US/en_US.twitter.txt", 
+ encoding = "UTF-8", skipNul = TRUE),source="twitter") %>% mutate(line = 1:n()),
+data_frame(text=readLines("Coursera-SwiftKey/final/en_US/en_US.blogs.txt", 
+                          encoding = "UTF-8", skipNul = TRUE),source="blogs") %>% mutate(line = 1:n()),
+data_frame(text=readLines("Coursera-SwiftKey/final/en_US/en_US.news_edit.txt", 
+                          encoding = "UTF-8", skipNul = TRUE,warn=FALSE),source="news") %>% mutate(line = 1:n())
+)
+capstone_corpus_ngram <- capstone_corpus %>% unnest_tokens(bigram, text, token = "ngrams", n = 4)
+capstoneDT <- data.table(ngram = capstone_corpus_ngram$bigram)
+rm(capstone_corpus)
+rm(capstone_corpus_ngram)
+capstoneDT[ , `:=`( COUNT = .N  ) , by = ngram ]
+setkey(capstoneDT, "ngram", "COUNT")
+capstoneDT = unique(capstoneDT)
+ 
+capstoneDT[, c("word1", "word2", "word3", "suggestion") := tstrsplit(ngram, " ")][]
+write.csv(capstoneDT, "ngram.csv" , row.names=FALSE)
+setkey(capstoneDT, "word3", "word2", "word1", "suggestion", "COUNT")
+```
+
+#Get the answers
+```{r answers, echo=TRUE, message=FALSE, warning=FALSE}
+answerNgram <- function(dt, text) {
+x <- unlist(rev(tstrsplit(text," ")))
+y <- dt[word3==x[1]&word2==x[2]&word1==x[3]]
+if(count(y) == 0) {
+y <- dt[word3==x[1]&word2==x[2]]
+}
+
+if(count(y) == 0) {
+y <- dt[word3==x[1]]
+}
+if (count(y) == 0) {
+    y <- dt[word2 == x[1] & word1 == x[2]]
+}
+if (count(y) == 0) {
+        y <- dt[word2 == x[1]]
+ }
+ if (count(y) == 0) {
+        y <- dt[word1 == x[1]]
+ }
+ if (count(y) == 0) {
+     y <- head(dt[order(-COUNT)], 20)
+ }
+head(y[order(-COUNT)],20)
+}
+
+answerNgramV2 <- function(dt, text) {
+    x <- unlist(rev(tstrsplit(text, " ")))
+    y <- dt[word3 == x[1] & word2 == x[2] & word1 == x[3]]
+    if (count(y) == 0) {
+        y <- dt[word3 == x[1] & word2 == x[2]]
+    }
+
+    if (count(y) == 0) {
+        y <- dt[word3 == x[1]]
+    }
+    if (count(y) == 0) {
+        y <- dt[word2 == x[1] & word1 == x[2]]
+    }
+    if (count(y) == 0) {
+        y <- dt[word2 == x[1]]
+    }
+    if (count(y) == 0) {
+        y <- dt[word1 == x[1]]
+    }
+    if (count(y) == 0) {
+        y <- head(dt[order(-COUNT)], 20)
+    }
+    y[, word1 := NULL]
+    y[, word2 := NULL]
+    y[, word3 := NULL]
+    y <- y[, COUNT := sum(COUNT), by = suggestion]
+    setkey(y, "suggestion", "COUNT")
+    y = unique(y)
+    head(y[order(-COUNT)], 20)
+}
+
+answerNgram(capstoneDT,"The guy in front of me just bought a pound of bacon, a bouquet, and a case of")
+#beer
+answerNgram(capstoneDT,"You're the reason why I smile everyday. Can you follow me please? It would mean the")
+#world
+answerNgram(capstoneDT,"Hey sunshine, can you follow me and make me the")
+#happiest
+answerNgram(capstoneDT,"Very early observations on the Bills game: Offense still struggling but the")
+  #defense
+answerNgram(capstoneDT,"Go on a romantic date at the")
+#beach
+answerNgram(capstoneDT,"Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my")
+#way
+answerNgram(capstoneDT,"Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some")
+#time
+answerNgram(capstoneDT,"After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little")
+#fingers
+answerNgram(capstoneDT,"Be grateful for the good times and keep the faith during the")
+#bad
+answerNgram(capstoneDT,"If this isn't the cutest thing you've ever seen, then you must be")
+#insane
+
+
+answerNgram(capstoneDT,"When you breathe, I want to be the air for you. I'll be there for you, I'd live")
+#die
+answerNgram(capstoneDT,"Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his")
+#marital
+answerNam(capstoneDT,"I'd give anything to see arctic monkeys this")
+#weekend
+answerNgram(capstoneDT,"Talking to your mom has the same effect as a hug and helps reduce your")
+#stress
+answerNgram(capstoneDT,"When you were in Holland you were like 1 inch away from me but you hadn't time to take a")
+#picture
+answerNgram(capstoneDT,"I'd just like all of these questions answered, a presentation of evidence, and a jury to settle the")
+#case
+answerNgram(capstoneDT,"I can't deal with unsymetrical things. I can't even hold an uneven number of bags of groceries in each")
+#hand
+answerNgram(capstoneDT,"Every inch of you is perfect from the bottom to the")
+#top
+answerNgram(capstoneDT,"I’m thankful my childhood was filled with imagination and bruises from playing")
+#outside
+answerNgram(capstoneDT,"I like how the same people are in almost all of Adam Sandlers")
+#movies
+system.time(setorder(capstoneDT, word3, word2, word1, -COUNT))
+capstoneDT[, `:=`(ANSWERS = .N,IDX = 1:.N), by = list(word3, word2, word1)]
+head(capstoneDT[order(-ANSWERS)],20)
+
+system.time(setorder(capstoneDT,  -COUNT, IDX))
+reduceDT <- capstoneDT[COUNT != 1]
+reduceDT <- reduceDT[COUNT != 2]
+reduceDT <- reduceDT[COUNT != 3]
+reduceDT <- reduceDT[COUNT != 4]
+reduceDT <- reduceDT[IDX<8]
+
+
+reduceDT[,ngram:=NULL]
+reduceDT[,ANSWERS:=NULL]
+reduceDT[,IDX:=NULL]
+system.time(setorder(reduceDT, word3, word2, word1, -COUNT))
+write.csv(reduceDT, "words.csv" , row.names=FALSE)
+
+answerNgram(reduceDT,"case of")
+answerNgram(reduceDT,"of")
+
+x <- answerNgram(reduceDT,"of")
+count(reduceDT)
+badDT <- data.table(text=readLines("bad-words.txt", encoding = "UTF-8", skipNul = TRUE))
+setnames(badDT,"text","suggestion")
+reduceDT <- setDT(reduceDT)[!badDT, on = "suggestion"]
+reduceDT <- reduceDT[str_detect(suggestion,"^[a-zA-Z0-9\'-]*$")]
+reduceDT <- reduceDT[str_detect(word1,"^[a-zA-Z0-9\'-]*$")]
+reduceDT <- reduceDT[str_detect(word2,"^[a-zA-Z0-9\'-]*$")]
+reduceDT <- reduceDT[str_detect(word3,"^[a-zA-Z0-9\'-]*$")]
+count(reduceDT)
+tail(reduceDT)
+setkey(reduceDT, "word3", "word2", "word1", "suggestion", "COUNT")
+save(reduceDT, file = "ngramReduced.Rda")
+answerNgramV2(reduceDT,"The guy in front of me just bought a pound of bacon, a bouquet, and a case of")
+
+load("ngram4.Rda")
+setkey(reduceDT, "word3", "word2", "word1", "suggestion", "COUNT")
+
+    started <- reduceDT
+    started[,word1:=NULL]
+    started[,word2:=NULL]
+    started[,word3:=NULL]
+    started <- started[, COUNT := sum(COUNT), by = suggestion]
+
+
+setkey(started, "suggestion", "COUNT")
+started = unique(started)
+x<-head(started[order(-COUNT)], 20)
